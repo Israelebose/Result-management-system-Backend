@@ -363,44 +363,30 @@ router.delete("/delete/:role/:id", authMiddleware, async (req, res) => {
   try {
     const decoded = req.user;
 
-    // 1. FIX THE AUTHORIZATION LOGIC
-    // The correct way to check if the role is NOT admin AND NOT super_admin
+    // Allow only admin users to delete
     if (decoded.role !== "admin") {
       return res.status(403).json({
         error: "Access Denied: Only Admins are allowed to delete accounts.",
       });
     }
 
-    // 2. INPUT VALIDATION (Keep as-is)
+    // Validate role
     const validRoles = ["admin", "lecturer", "course_adviser", "student"];
     if (!validRoles.includes(role)) {
-      return res
-        .status(400)
-        .json({ error: "Invalid role specified for deletion." });
+      return res.status(400).json({ error: "Invalid role specified for deletion." });
     }
 
-    // Check if the user exists
+    // Check if user exists
     const roleRecord = await User.findOne({ where: { unique_id: id } });
     if (!roleRecord) {
       return res.status(404).json({ error: `User with ID ${id} not found.` });
     }
 
-    // Calculate the date one month from now for permanent cleanup
-    const oneMonthFromNow = new Date();
-    oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
-
-    // Perform the soft delete update
-    await User.update(
-      {
-        is_deleted: true,
-        deleted_at: oneMonthFromNow, // Set the future date for permanent deletion
-      },
-      { where: { unique_id: id } }
-    );
+    // Immediate deletion from database
+    await User.destroy({ where: { unique_id: id } });
 
     res.status(200).json({
-      message: `Account for role '${role}' (ID: ${id}) has been marked for soft deletion. 
-      It will be permanently removed after 30 days on ${oneMonthFromNow.toLocaleDateString()}.`,
+      message: `Account with role '${role}' and ID '${id}' has been permanently deleted.`,
     });
   } catch (error) {
     console.error("Deletion process error:", error);
@@ -410,6 +396,7 @@ router.delete("/delete/:role/:id", authMiddleware, async (req, res) => {
     });
   }
 });
+
 
 // to update roles by admin and super-adamin
 router.patch("/update-role/:id/:roleId", authMiddleware, async (req, res) => {
