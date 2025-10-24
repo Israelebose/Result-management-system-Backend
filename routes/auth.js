@@ -10,35 +10,28 @@ const { where } = require("sequelize");
 const router = express.Router();
 
 router.get("/me", authMiddleware, async (req, res) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: "Not authenticated" });
-
   try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    res.json(user); // must include firstName, lastName, role_id, role
+    // req.user already contains decoded data
+    const { firstName, lastName, role_id, role } = req.user;
+    res.json({ firstName, lastName, role_id, role });
   } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+    res.status(401).json({ error: "Not authenticated" });
   }
 });
 
+//Fetch full profile from database
 router.get("/profile", authMiddleware, async (req, res) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: "Not authenticated" });
-
-  const userId = req.user.role_id;
-
   try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    if (!user) {
-      return res.status(401).json({ error: "Invalid token" });
-    }
+    const userId = req.user.role_id;
+
     const roleRecord = await User.findOne({ where: { unique_id: userId } });
     if (!roleRecord) {
-      return res.status(401).json({ error: "Invalid User" });
+      return res.status(404).json({ error: "User not found" });
     }
+
     res.status(200).json(roleRecord);
   } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+    res.status(401).json({ error: "Invalid token or user" });
   }
 });
 
@@ -473,7 +466,10 @@ router.patch("/update-role/:id/:roleId", authMiddleware, async (req, res) => {
 });
 
 // to change course-adviser level
-router.patch("/update-ca-level/:unique_id",authMiddleware,async (req, res) => {
+router.patch(
+  "/update-ca-level/:unique_id",
+  authMiddleware,
+  async (req, res) => {
     const { unique_id } = req.params;
     const { courseAdviserLevel } = req.body;
 
@@ -503,7 +499,9 @@ router.patch("/update-ca-level/:unique_id",authMiddleware,async (req, res) => {
           .json({ error: "Only course advisers can have a level assigned" });
       }
 
-      const currentSession = await Session.findOne({ where: { isCurrent: true } });
+      const currentSession = await Session.findOne({
+        where: { isCurrent: true },
+      });
       if (!currentSession) {
         return res.status(400).json({ error: "No active session found" });
       }
@@ -928,15 +926,13 @@ router.post("/update/new-session", authMiddleware, async (req, res) => {
 
     if (session) {
       // If it exists, just mark it as current
-      await session.update({sessionName: newSession, isCurrent: true });
-
+      await session.update({ sessionName: newSession, isCurrent: true });
     } else {
       // Otherwise, create a new one
       session = await Session.create({
         sessionName: newSession,
         isCurrent: true,
       });
-      
     }
 
     // Step 3: Update all users' currentSession
@@ -1013,16 +1009,13 @@ router.post("/new-session", authMiddleware, async (req, res) => {
       await AdviserSession.create({
         adviserId: adviser.id,
         sessionId: createdSession.id,
-        published:false,
+        published: false,
         levelHandled: newAdviserLevel,
       });
     }
 
     // update all staff session
-    await User.update(
-      { currentSession: newSession },
-      { where: {} }
-    );
+    await User.update({ currentSession: newSession }, { where: {} });
 
     res.status(200).json({ message: "New session opened successfully" });
   } catch (error) {
