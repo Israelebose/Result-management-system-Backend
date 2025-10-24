@@ -23,17 +23,26 @@ const PORT = process.env.PORT || 5000;
 // =========================
 // MIDDLEWARE
 // =========================
-const cors = require("cors");
+const allowedOrigins = [
+  process.env.FRONTEND_URL, // your live site
+  "http://localhost:5173",              // local dev
+];
 
-app.use(cors({
-  origin: [
-    "https://frontend-pmlz.onrender.com", // your live site
-    "http://localhost:5173" // local dev
-  ],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("CORS not allowed from this origin"));
+      }
+    },
+    credentials: true,
+  })
+);
 
-app.options("*", cors());
 app.use(cookieParser());
 app.use(express.json());
 
