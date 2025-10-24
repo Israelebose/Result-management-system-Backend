@@ -1,34 +1,27 @@
-const { Sequelize } = require('sequelize');
-require('dotenv').config();
+const { Sequelize } = require("sequelize");
+require("dotenv").config();
 
-const env = process.env.NODE_ENV || 'development';
-const configs = require('./config.js')[env];
+const env = process.env.NODE_ENV || "development";
+const configs = require("./config.js")[env];
 
-
-console.log(configs);
-// Validate configuration
-if (!configs || !configs.database || !configs.username || !configs.dialect) {
-  throw new Error('Invalid database configuration: Missing required fields');
-}
-
-
-
-// Use DATABASE_URL in production (common for cloud DBs)
 let sequelize;
-if (process.env.DATABASE_URL) {
+
+if (env === "production" && process.env.DATABASE_URL) {
+  // Production (Render/Neon)
   sequelize = new Sequelize(process.env.DATABASE_URL, {
-    dialect: 'postgres',
-    protocol: 'postgres',
-    logging: env === 'development' ? console.log : false,
+    dialect: "postgres",
+    protocol: "postgres",
+    logging: false,
     dialectOptions: {
-      ssl: env === 'production'
-        ? { require: true, rejectUnauthorized: false }
-        : false,
+      ssl: {
+        require: true,
+        rejectUnauthorized: false,
+      },
     },
     pool: configs.pool,
   });
 } else {
-  // Local development config
+  //  Local development
   sequelize = new Sequelize(
     configs.database,
     configs.username,
@@ -43,9 +36,12 @@ if (process.env.DATABASE_URL) {
   );
 }
 
-// Optional: Test the connection once on startup
-sequelize.authenticate()
-  .then(() => console.log('Database connection successful'))
-  .catch(err => console.error('Database connection error:', err));
+// Test DB connection
+sequelize
+  .authenticate()
+  .then(() =>
+    console.log(`Database connection successful [${env.toUpperCase()}]`)
+  )
+  .catch((err) => console.error("Database connection error:", err.message));
 
 module.exports = sequelize;
