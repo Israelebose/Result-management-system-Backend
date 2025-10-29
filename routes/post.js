@@ -7,6 +7,7 @@ const {
   Courses,
   CourseRegistration,
   RegistrationCourses,
+  AdviserSession,
   Result,
 } = require("../models"); // Import models
 
@@ -181,7 +182,7 @@ router.post("/upload-grades", authMiddleware, async (req, res) => {
             Total: total,
             Grade: gradeLetter,
             session,
-            level: studentLevel, 
+            level: studentLevel,
             published: false,
           },
           {
@@ -198,7 +199,7 @@ router.post("/upload-grades", authMiddleware, async (req, res) => {
           Total: total,
           Grade: gradeLetter,
           session,
-          level: studentLevel, 
+          level: studentLevel,
           published: false,
         });
       }
@@ -211,27 +212,91 @@ router.post("/upload-grades", authMiddleware, async (req, res) => {
   }
 });
 
-
 // ////////////////////////////////
 //// publish result
 ////////////////////////////
-router.post("/results/publish", authMiddleware, async (req, res) => {
-  const { sessionId, levelHandled } = req.body;
+router.post("/results/publish", authMiddleware,  async (req, res) => {
+  const { session, semester } = req.body;
   const decoded = req.user;
 
-  if (decoded.role !== "course_adviser") {
-    return res.status(403).json({ error: "Only course advisers can publish results" });
+  try {
+    console.log(semester);
+    
+    // Allow only course advisers
+    if (decoded.role !== "course_adviser") {
+      return res.status(403).json({
+        error: "Only course advisers can publish results",
+      });
+    }
+
+    if (semester === "both") {
+      // Publish both semesters
+      await Result.update(
+        { published: true },
+        {
+          where: {
+            session,
+            level: decoded.courseAdviserLevel,
+            published: false,
+          },
+        }
+      );
+      // Update AdviserSession table if relevant
+      await AdviserSession.update(
+        { isPublished: true },
+        {
+          where: {
+            adviserId: decoded.role_id,
+            sessionId: session,
+            levelHandled: decoded.courseAdviserLevel,
+          },
+        }
+      );
+      res.json({
+      message: `Results for semester '${semester}' in session '${session}' have been published successfully.`,
+    });
+    return ;
+    }
+
+    // Find all results linked to courses in that semester + adviser’s level
+    const resultsToUpdate = await Result.findAll({
+      include: [
+        {
+          model: Courses,
+          as: "course",
+          where: { semester },
+        },
+      ],
+      where: {
+        session,
+        level: decoded.courseAdviserLevel ,
+        published: false,
+      },
+    });
+
+    if (!resultsToUpdate.length) {
+      return res.status(404).json({
+        error: "No unpublished results found for this session and semester.",
+      });
+    }
+
+    // Update all those results
+    const studentIds = resultsToUpdate.map((r) => r.id);
+    await Result.update({ published: true }, { where: { id: studentIds } });
+
+    res.json({
+      message: `Results for semester '${semester}' in session '${session}' have been published successfully.`,
+    });
+  } catch (error) {
+    console.error("Publish results error:", error);
+    res.status(500).json({
+      error: "Failed to publish results",
+      details: error.message,
+    });
   }
-
-  await AdviserSession.update(
-    { isPublished: true },
-    { where: { adviserId: decoded.role_id, sessionId, levelHandled } }
-  );
-
-  return res.json({ success: true, message: "Results published successfully" });
 });
 
-
-
+// //////////////////////////////////////////
+// publish result
 
 module.exports = router;

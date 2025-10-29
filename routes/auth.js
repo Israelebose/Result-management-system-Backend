@@ -221,7 +221,7 @@ router.post("/login", async (req, res) => {
         level: roleRecord.level || null,
         is_staff: roleRecord.is_staff || false,
         // matnumber: roleRecord.matNumber,
-        // courseAdviserLevel: roleRecord.courseAdviserLevel,
+        courseAdviserLevel: roleRecord.courseAdviserLevel || null,
       },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
@@ -745,7 +745,10 @@ router.post("/forgot-password", async (req, res) => {
     );
 
     // Send OTP email
-    await sendOtpEmail(email, otp);
+    const sentMail = await sendOtpEmail(email, otp);
+    if (!sentMail) {
+      return res.status(500).json({ error: "Failed to send OTP email" });
+    }
 
     console.log(`📨 OTP for ${email}: ${otp}`);
     return res.json({ message: "OTP sent to your email", role: user.role });

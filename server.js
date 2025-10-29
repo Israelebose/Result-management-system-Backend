@@ -25,7 +25,7 @@ const PORT = process.env.PORT || 5000;
 // =========================
 const allowedOrigins = [
   process.env.FRONTEND_URL, // your live site
-  "http://localhost:5173",              // local dev
+  "http://localhost:5173"
 ];
 
 app.use(

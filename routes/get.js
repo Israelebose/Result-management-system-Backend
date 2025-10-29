@@ -74,15 +74,14 @@ router.get("/courses/all", authMiddleware, async (req, res) => {
 // get course by level
 router.get("/courses/level/:level", async (req, res) => {
   try {
-    
     const { level } = req.params;
-    const courses = await Courses.findAll({ where: { level } });   
+    const courses = await Courses.findAll({ where: { level } });
     if (courses.length === 0)
       return res.status(404).json({ error: "No course found for this level" });
-    return res.status(200).json(courses);   
-  } catch (error) {     
-    console.error(error);   
-    res.status(500).json({ error: "Failed to fetch courses by level" });  
+    return res.status(200).json(courses);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch courses by level" });
   }
 });
 
@@ -170,88 +169,91 @@ router.get("/lecturer-courses", authMiddleware, async (req, res) => {
 //  Get students registered for a course
 // Get students registered for a course (with results if available)
 // Get students registered for a course (with results if available)
-router.get("/course-registrations/:courseId", authMiddleware, async (req, res) => {
-  try {
-    const { courseId } = req.params;
+router.get(
+  "/course-registrations/:courseId",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { courseId } = req.params;
 
-    // Get courseCode + level from courseId
-    const course = await Courses.findByPk(courseId);
-    if (!course) return res.status(404).json({ error: "Course not found" });
+      // Get courseCode + level from courseId
+      const course = await Courses.findByPk(courseId);
+      if (!course) return res.status(404).json({ error: "Course not found" });
 
-    const { courseCode, level: courseLevel } = course;
+      const { courseCode, level: courseLevel } = course;
 
-    // Find all registration-course links for this course
-    const courseLinks = await RegistrationCourses.findAll({
-      where: { courseId },
-      include: [
-        {
-          model: CourseRegistration,
-          as: "registration",
-          include: {
-            model: User,
-            as: "student",
-            attributes: ["unique_id", "firstName", "lastName", "matNumber"],
+      // Find all registration-course links for this course
+      const courseLinks = await RegistrationCourses.findAll({
+        where: { courseId },
+        include: [
+          {
+            model: CourseRegistration,
+            as: "registration",
+            include: {
+              model: User,
+              as: "student",
+              attributes: ["unique_id", "firstName", "lastName", "matNumber"],
+            },
           },
+        ],
+      });
+
+      if (courseLinks.length === 0) {
+        return res.json({ students: [], courseCode, courseLevel });
+      }
+
+      // Collect all student IDs
+      const studentIds = courseLinks
+        .map((link) => link.registration?.studentUniqueId)
+        .filter(Boolean);
+
+      //  Fetch existing results using courseCode
+      const results = await Result.findAll({
+        where: {
+          courseCode,
+          studentUniqueId: { [Op.in]: studentIds },
         },
-      ],
-    });
+      });
 
-    if (courseLinks.length === 0) {
-      return res.json({ students: [], courseCode, courseLevel });
+      //  Map results by studentUniqueId for quick lookup
+      const resultMap = {};
+      results.forEach((r) => {
+        resultMap[r.studentUniqueId] = {
+          CA: r.CA,
+          Exam: r.Exam,
+          Total: r.Total,
+          Grade: r.Grade,
+          session: r.session,
+          level: r.level, // Added this (from Result)
+        };
+      });
+
+      // Combine registration info + results + level
+      const students = courseLinks.map((link) => {
+        const reg = link.registration;
+        const student = reg?.student;
+        const existing = resultMap[reg?.studentUniqueId] || {};
+
+        return {
+          studentUniqueId: reg?.studentUniqueId,
+          matricNumber: student?.matNumber,
+          name: `${student?.firstName || ""} ${student?.lastName || ""}`.trim(),
+          CA: existing.CA ?? 0,
+          Exam: existing.Exam ?? 0,
+          Total: existing.Total ?? 0,
+          Grade: existing.Grade ?? "-",
+          session: existing.session || reg?.session || null,
+          level: existing.level ?? reg?.level ?? courseLevel,
+        };
+      });
+
+      res.json({ students, courseCode, courseLevel });
+    } catch (err) {
+      console.error("Course registration fetch error:", err);
+      res.status(500).json({ error: "Failed to fetch course students" });
     }
-
-    // Collect all student IDs
-    const studentIds = courseLinks
-      .map((link) => link.registration?.studentUniqueId)
-      .filter(Boolean);
-
-    //  Fetch existing results using courseCode
-    const results = await Result.findAll({
-      where: {
-        courseCode,
-        studentUniqueId: { [Op.in]: studentIds },
-      },
-    });
-
-    //  Map results by studentUniqueId for quick lookup
-    const resultMap = {};
-    results.forEach((r) => {
-      resultMap[r.studentUniqueId] = {
-        CA: r.CA,
-        Exam: r.Exam,
-        Total: r.Total,
-        Grade: r.Grade,
-        session: r.session,
-        level: r.level, // Added this (from Result)
-      };
-    });
-
-    // Combine registration info + results + level
-    const students = courseLinks.map((link) => {
-      const reg = link.registration;
-      const student = reg?.student;
-      const existing = resultMap[reg?.studentUniqueId] || {};
-
-      return {
-        studentUniqueId: reg?.studentUniqueId,
-        matricNumber: student?.matNumber,
-        name: `${student?.firstName || ""} ${student?.lastName || ""}`.trim(),
-        CA: existing.CA ?? 0,
-        Exam: existing.Exam ?? 0,
-        Total: existing.Total ?? 0,
-        Grade: existing.Grade ?? "-",
-        session: existing.session || reg?.session || null,
-        level: existing.level ?? reg?.level ?? courseLevel , 
-      };
-    });
-
-    res.json({ students, courseCode, courseLevel });
-  } catch (err) {
-    console.error("Course registration fetch error:", err);
-    res.status(500).json({ error: "Failed to fetch course students" });
   }
-});
-
+);
 
 // GET ALL REGISTERED COURSES FOR A STUDENT
 // GET /api/student-registrations/:studentId
@@ -296,7 +298,6 @@ router.get("/student-registrations/:studentId", async (req, res) => {
   }
 });
 
-
 // ///////////////////////////////////////
 ////////////////////////////////////////////
 // STUDENT GET GRADES FOR VIEW RESULT
@@ -310,7 +311,9 @@ router.get("/results/student", authMiddleware, async (req, res) => {
 
     // Ensure only students view their own results
     if (decoded.role === "student" && !decoded.role_id) {
-      return res.status(403).json({ error: "You can only view your own results" });
+      return res
+        .status(403)
+        .json({ error: "You can only view your own results" });
     }
 
     //  Query filter
@@ -341,7 +344,10 @@ router.get("/results/student", authMiddleware, async (req, res) => {
     // Group by session → semester
     const grouped = results.reduce((acc, r) => {
       const sess = r.session;
-      const sem = r.course.semester?.toString().toLowerCase() === "2" ? "second" : "first";
+      const sem =
+        r.course.semester?.toString().toLowerCase() === "2"
+          ? "second"
+          : "first";
 
       if (!acc[sess]) acc[sess] = {};
       if (!acc[sess][sem]) acc[sess][sem] = [];
@@ -357,6 +363,7 @@ router.get("/results/student", authMiddleware, async (req, res) => {
         Total: r.Total,
         Grade: r.Grade,
         point: getGradePoint(r.Grade),
+        published: r.published,
       });
 
       return acc;
@@ -380,7 +387,6 @@ function getGradePoint(grade) {
   const points = { A: 5, B: 4, C: 3, D: 2, E: 1, F: 0 };
   return points[grade?.toUpperCase()] ?? 0;
 }
-
 
 /**
  * Get all sessions this course adviser handles
@@ -425,7 +431,6 @@ router.get("/adviser/sessions", authMiddleware, async (req, res) => {
     });
   }
 });
-
 
 /**
  * Get results for all students under this adviser’s level & session
@@ -600,7 +605,6 @@ router.get("/adviser/sessions", authMiddleware, async (req, res) => {
 //   }
 // });
 
-
 router.get("/adviser/results", authMiddleware, async (req, res) => {
   const { session } = req.query;
 
@@ -611,17 +615,28 @@ router.get("/adviser/results", authMiddleware, async (req, res) => {
     }
 
     if (!session) {
-      return res.status(400).json({ error: "session query parameter required" });
+      return res
+        .status(400)
+        .json({ error: "session query parameter required" });
     }
 
     // Find the adviser-session row for this adviser and session name
     const adviserSessionRow = await AdviserSession.findOne({
       where: { adviserId: decoded.id },
-      include: [{ model: Session, as: "session", where: { sessionName: session }, attributes: ["id", "sessionName"] }],
+      include: [
+        {
+          model: Session,
+          as: "session",
+          where: { sessionName: session },
+          attributes: ["id", "sessionName"],
+        },
+      ],
     });
 
     if (!adviserSessionRow) {
-      return res.status(404).json({ error: "No assigned session/level found for this adviser and session" });
+      return res.status(404).json({
+        error: "No assigned session/level found for this adviser and session",
+      });
     }
 
     const levelHandled = adviserSessionRow.levelHandled;
@@ -629,28 +644,43 @@ router.get("/adviser/results", authMiddleware, async (req, res) => {
     // 1) Get all Courses belonging to that level (split into first/second)
     const levelCourses = await Courses.findAll({
       where: { level: levelHandled },
-      attributes: ["id", "courseCode", "courseTitle", "credits", "semester", "level"],
+      attributes: [
+        "id",
+        "courseCode",
+        "courseTitle",
+        "credits",
+        "semester",
+        "level",
+      ],
       order: [["courseCode", "ASC"]],
     });
 
-    const coursesFirst = levelCourses.filter(c => c.semester === 1).map(c => ({
-      courseId: c.id,
-      courseCode: c.courseCode,
-      courseTitle: c.courseTitle,
-      credits: c.credits,
-    }));
-    const coursesSecond = levelCourses.filter(c => c.semester === 2).map(c => ({
-      courseId: c.id,
-      courseCode: c.courseCode,
-      courseTitle: c.courseTitle,
-      credits: c.credits,
-    }));
+    const coursesFirst = levelCourses
+      .filter((c) => c.semester === 1)
+      .map((c) => ({
+        courseId: c.id,
+        courseCode: c.courseCode,
+        courseTitle: c.courseTitle,
+        credits: c.credits,
+      }));
+    const coursesSecond = levelCourses
+      .filter((c) => c.semester === 2)
+      .map((c) => ({
+        courseId: c.id,
+        courseCode: c.courseCode,
+        courseTitle: c.courseTitle,
+        credits: c.credits,
+      }));
 
     // 2) Find all course registrations for this session and levelHandled
     const registrations = await CourseRegistration.findAll({
       where: { session, level: levelHandled },
       include: [
-        { model: User, as: "student", attributes: ["unique_id", "matNumber", "firstName", "lastName"] },
+        {
+          model: User,
+          as: "student",
+          attributes: ["unique_id", "matNumber", "firstName", "lastName"],
+        },
         {
           model: Courses, // Include the courses via belongsToMany
           as: "courses",
@@ -677,18 +707,31 @@ router.get("/adviser/results", authMiddleware, async (req, res) => {
     }
 
     // 3) Collect student unique ids that we will need to fetch their results
-    const studentIds = registrations.map(r => r.studentUniqueId);
+    const studentIds = registrations.map((r) => r.studentUniqueId);
 
     // 4) Fetch all Results for these students in this session
     const allResults = await Result.findAll({
       where: { session, studentUniqueId: { [Op.in]: studentIds } },
-      include: [{ model: Courses, as: "course", attributes: ["courseCode", "level", "semester", "courseTitle", "credits"] }],
+      include: [
+        {
+          model: Courses,
+          as: "course",
+          attributes: [
+            "courseCode",
+            "level",
+            "semester",
+            "courseTitle",
+            "credits",
+          ],
+        },
+      ],
     });
 
     // Build results map: studentUniqueId -> array of results
     const resultsByStudent = {};
-    allResults.forEach(r => {
-      if (!resultsByStudent[r.studentUniqueId]) resultsByStudent[r.studentUniqueId] = [];
+    allResults.forEach((r) => {
+      if (!resultsByStudent[r.studentUniqueId])
+        resultsByStudent[r.studentUniqueId] = [];
       resultsByStudent[r.studentUniqueId].push({
         courseCode: r.course.courseCode,
         Total: r.Total,
@@ -707,10 +750,12 @@ router.get("/adviser/results", authMiddleware, async (req, res) => {
 
       // Build quick lookup by courseCode for student's results
       const resultLookup = {};
-      studentResults.forEach(r => { resultLookup[r.courseCode] = r; });
+      studentResults.forEach((r) => {
+        resultLookup[r.courseCode] = r;
+      });
 
       // For CA-level courses (first & second), map each course to the student's grade if exists
-      const firstCoursesWithGrades = coursesFirst.map(c => {
+      const firstCoursesWithGrades = coursesFirst.map((c) => {
         const res = resultLookup[c.courseCode];
         return {
           courseCode: c.courseCode,
@@ -724,7 +769,7 @@ router.get("/adviser/results", authMiddleware, async (req, res) => {
         };
       });
 
-      const secondCoursesWithGrades = coursesSecond.map(c => {
+      const secondCoursesWithGrades = coursesSecond.map((c) => {
         const res = resultLookup[c.courseCode];
         return {
           courseCode: c.courseCode,
@@ -740,19 +785,26 @@ router.get("/adviser/results", authMiddleware, async (req, res) => {
 
       // Identify repeat courses: results for this student in this session whose course.level != levelHandled
       const repeatCourses = studentResults
-        .filter(r => r.level && Number(r.level) !== Number(levelHandled))
-        .map(r => ({ courseCode: r.courseCode, Total: r.Total, Grade: r.Grade, level: r.level }));
+        .filter((r) => r.level && Number(r.level) !== Number(levelHandled))
+        .map((r) => ({
+          courseCode: r.courseCode,
+          Total: r.Total,
+          Grade: r.Grade,
+          level: r.level,
+        }));
 
       // Carried courses: CA-level courses (both sem) where Grade === 'F'
       const carried = [...firstCoursesWithGrades, ...secondCoursesWithGrades]
-        .filter(c => c.Grade === "F")
-        .map(c => c.courseCode);
+        .filter((c) => c.Grade === "F" || !c.Grade)
+        .map((c) => c.courseCode);
 
       return {
         sn: idx + 1,
         studentUniqueId: reg.studentUniqueId,
         matricNo: student?.matNumber,
-        fullName: `${student?.firstName || ""} ${student?.lastName || ""}`.trim(),
+        fullName: `${student?.firstName || ""} ${
+          student?.lastName || ""
+        }`.trim(),
         firstSem: firstCoursesWithGrades,
         secondSem: secondCoursesWithGrades,
         repeats: repeatCourses,
@@ -769,7 +821,95 @@ router.get("/adviser/results", authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error("Adviser result fetch error:", err);
-    return res.status(500).json({ error: "Failed to fetch adviser results", details: err.message });
+    return res
+      .status(500)
+      .json({ error: "Failed to fetch adviser results", details: err.message });
+  }
+});
+
+// ////////////////////////////////////////
+// Check if results are published for a session & level
+/////////////////////////////
+
+router.get("/results/published", authMiddleware, async (req, res) => {
+  const { session, semester } = req.query;
+  const decoded = req.user;
+
+  try {
+    // Validate required parameters
+    if (!session || !semester) {
+      return res.status(400).json({ error: "Session and semester are required." });
+    }
+
+    // For checking both semesters
+    if (semester === "all") {
+      const firstSemResults = await Result.findAll({
+        include: [{ model: Courses, as: "course", where: { semester: 1 } }],
+        where: {
+          studentUniqueId: decoded.role_id,
+          session,
+          level: decoded.level,
+          published: true,
+        },
+      });
+
+      const secondSemResults = await Result.findAll({
+        include: [{ model: Courses, as: "course", where: { semester: 2 } }],
+        where: {
+          studentUniqueId: decoded.role_id,
+          session,
+          level: decoded.level,
+          published: true,
+        },
+      });
+
+      const bothPublished = firstSemResults.length > 0 && secondSemResults.length > 0;
+
+      return res.json({
+        published: true,
+        firstSem: true,
+        message: bothPublished
+          ? `Both semesters for session '${session}' have been published.`
+          : `Some or all semesters for session '${session}' are not yet published.`,
+      });
+    }
+
+    // For a specific semester
+    const semNum = Number(semester);
+    if (semNum !== 1 ) {
+      return res.status(400).json({ error: "Semester must be 1, 2, or 'all'." });
+    }
+
+    const results = await Result.findAll({
+      include: [{ model: Courses, as: "course", where: { semester: semNum } }],
+      where: {
+        studentUniqueId: decoded.role_id,
+        session,
+        level: decoded.level,
+        published: true,
+      },
+    });
+
+    if (results.length > 0) {
+      return res.json({
+        published: false,
+        firstSem : true,
+        semester: semNum,
+        message: `Results for semester '${semNum}' in session '${session}' have been published.`,
+      });
+    } else {
+      return res.json({
+        published: false,
+        semester: semNum,
+        message: `Results for semester '${semNum}' in session '${session}' are not yet published.`,
+      });
+    }
+  } catch (error) {
+    console.error("Check published results error:", error);
+    res.status(500).json({
+      error: "Failed to check published results",
+      details: error.message,
+    });
   }
 });
 
